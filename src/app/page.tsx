@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
+// StoicApp.tsx with hydration fix
 "use client"
 
 import { useState, useEffect } from "react";
@@ -7,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
-import { Sun, Moon, BookOpen, Save, ArrowRight, RotateCcw } from "lucide-react";
+import { Sun, Moon, BookOpen, Save, ArrowRight, RotateCcw, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast, Toaster } from "sonner";
 
@@ -35,6 +36,10 @@ interface WeeklyArchive {
   reflections: DailyReflection[];
 }
 
+interface ExpandedReflections {
+  [key: string]: boolean;
+}
+
 export default function StoicApp() {
   const { theme, setTheme } = useTheme();
   const [dayIndex, setDayIndex] = useState(0);
@@ -42,9 +47,19 @@ export default function StoicApp() {
   const [archive, setArchive] = useState<WeeklyArchive[]>([]);
   const [currentReflections, setCurrentReflections] = useState<DailyReflection[]>([]);
   const [isArchiveOpen, setIsArchiveOpen] = useState(false);
+  const [expandedReflections, setExpandedReflections] = useState<ExpandedReflections>({});
+  const [mounted, setMounted] = useState(false);
   const exercise = exercises[dayIndex];
 
+  // Mark when component has mounted
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    // Skip localStorage operations during SSR
+    if (!mounted) return;
+    
     // Tangani loading data dari localStorage
     try {
       const savedIndex = localStorage.getItem("stoic_dayIndex");
@@ -74,9 +89,12 @@ export default function StoicApp() {
       localStorage.removeItem("stoic_archive");
       localStorage.removeItem("stoic_currentReflections");
     }
-  }, []);
+  }, [mounted]);
 
   useEffect(() => {
+    // Skip localStorage operations during SSR
+    if (!mounted) return;
+    
     // Simpan data ke localStorage
     try {
       localStorage.setItem("stoic_dayIndex", dayIndex.toString());
@@ -87,7 +105,7 @@ export default function StoicApp() {
       console.error("Error saving data to localStorage:", error);
       toast.error("Gagal menyimpan data");
     }
-  }, [dayIndex, reflection, archive, currentReflections]);
+  }, [dayIndex, reflection, archive, currentReflections, mounted]);
 
   const saveReflection = () => {
     if (!reflection.trim()) {
@@ -211,6 +229,24 @@ export default function StoicApp() {
     }
     return `Hari ${dayNum + 1}`;
   };
+
+  const toggleReflectionExpand = (weekIdx: number, refIdx: number) => {
+    const key = `${weekIdx}-${refIdx}`;
+    setExpandedReflections(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
+
+  const isReflectionExpanded = (weekIdx: number, refIdx: number) => {
+    const key = `${weekIdx}-${refIdx}`;
+    return !!expandedReflections[key];
+  };
+
+  // Only show the UI when mounted (client-side)
+  if (!mounted) {
+    return null; // Return empty during SSR to avoid hydration mismatch
+  }
 
   const isDarkMode = theme === 'dark';
 
@@ -366,6 +402,7 @@ export default function StoicApp() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
               transition={{ duration: 0.3 }}
+              className="overflow-hidden"
             >
               <Card className="rounded-xl shadow-lg">
                 <CardContent className="p-6">
@@ -404,14 +441,48 @@ export default function StoicApp() {
                                 key={refIdx} 
                                 className="border-l-4 border-primary pl-4 py-1"
                               >
-                                <h4 className="font-medium">
-                                  {reflection.day >= 0 && reflection.day < exercises.length
-                                    ? `${exercises[reflection.day].day}: ${reflection.title}`
-                                    : `Hari ${reflection.day + 1}: ${reflection.title}`
-                                  }
-                                </h4>
+                                <div className="flex justify-between items-center">
+                                  <h4 className="font-medium">
+                                    {reflection.day >= 0 && reflection.day < exercises.length
+                                      ? `${exercises[reflection.day].day}: ${reflection.title}`
+                                      : `Hari ${reflection.day + 1}: ${reflection.title}`
+                                    }
+                                  </h4>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-8 w-8"
+                                    onClick={() => toggleReflectionExpand(weekIdx, refIdx)}
+                                  >
+                                    {isReflectionExpanded(weekIdx, refIdx) ? 
+                                      <ChevronUp size={16} /> : 
+                                      <ChevronDown size={16} />
+                                    }
+                                  </Button>
+                                </div>
                                 <p className="text-sm text-muted-foreground mt-1">{reflection.prompt}</p>
-                                <p className="mt-2 whitespace-pre-wrap">{reflection.reflection}</p>
+                                <div 
+                                  className={cn(
+                                    "mt-2 transition-all duration-300 overflow-hidden",
+                                    isReflectionExpanded(weekIdx, refIdx) ? "max-h-96" : "max-h-20"
+                                  )}
+                                >
+                                  <div className="whitespace-pre-wrap pr-4">
+                                    {reflection.reflection}
+                                  </div>
+                                </div>
+                                {!isReflectionExpanded(weekIdx, refIdx) && reflection.reflection.length > 100 && (
+                                  <div className="text-center mt-1">
+                                    <Button 
+                                      variant="ghost" 
+                                      size="sm" 
+                                      className="text-xs text-muted-foreground hover:text-foreground"
+                                      onClick={() => toggleReflectionExpand(weekIdx, refIdx)}
+                                    >
+                                      Baca selengkapnya...
+                                    </Button>
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
